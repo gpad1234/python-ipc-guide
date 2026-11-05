@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Python IPC Example Runner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --border:#d9dde3; --accent:#2563eb; --ok:#16a34a; --bad:#dc2626; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 -apple-system, system-ui, sans-serif; background:var(--bg); color:#1f2937; }
+  header { padding:14px 20px; background:#111827; color:#fff; display:flex; align-items:center; gap:16px; }
+  header h1 { font-size:17px; margin:0; flex:1; }
+  main { display:grid; grid-template-columns: 330px 1fr; height: calc(100vh - 52px); }
+  #list { overflow:auto; border-right:1px solid var(--border); padding:10px; }
+  .item { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-bottom:8px; cursor:pointer; }
+  .item:hover { border-color:var(--accent); }
+  .item.sel { border-color:var(--accent); box-shadow:0 0 0 2px #bfdbfe; }
+  .item .t { font-weight:600; }
+  .item .f { color:#6b7280; font-size:12px; }
+  .badge { float:right; font-size:11px; padding:1px 7px; border-radius:10px; color:#fff; }
+  .badge.ok { background:var(--ok); } .badge.bad { background:var(--bad); }
+  #detail { padding:20px; overflow:auto; }
+  #detail h2 { margin:0 0 4px; }
+  #summary { color:#4b5563; max-width:80ch; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:8px 16px; font-size:14px; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  button.secondary { background:#374151; }
+  .meta { margin:12px 0 6px; color:#6b7280; }
+  h3 { margin:14px 0 4px; font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:#6b7280; }
+  pre { background:#0b1020; color:#d6deeb; padding:12px; border-radius:8px; min-height:40px; max-height:340px; overflow:auto; margin:0; white-space:pre-wrap; }
+  pre.err { color:#fca5a5; }
+  .empty { color:#6b7280; padding:40px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Python IPC Example Runner</h1>
+  <button class="secondary" id="runAll">Run all</button>
+</header>
+<main>
+  <div id="list"></div>
+  <div id="detail"><div class="empty">Select an example on the left, then click Run.</div></div>
+</main>
+<script>
+const state = { examples: [], results: {}, selected: null, busy: false };
+const $ = s => document.querySelector(s);
+
+async function load() {
+  state.examples = await (await fetch('/api/examples')).json();
+  renderList();
+}
+
+function renderList() {
+  const list = $('#list');
+  list.replaceChildren();
+  for (const ex of state.examples) {
+    const div = document.createElement('div');
+    div.className = 'item' + (state.selected === ex.id ? ' sel' : '');
+    const r = state.results[ex.id];
+    if (r) {
+      const b = document.createElement('span');
+      const ok = r.exit_code === 0 && !r.timed_out;
+      b.className = 'badge ' + (ok ? 'ok' : 'bad');
+      b.textContent = r.timed_out ? 'timeout' : ok ? 'passed' : 'failed';
+      div.append(b);
+    }
+    const t = document.createElement('div'); t.className = 't'; t.textContent = ex.title;
+    const f = document.createElement('div'); f.className = 'f'; f.textContent = ex.folder + '/' + ex.script;
+    div.append(t, f);
+    div.onclick = () => { state.selected = ex.id; renderList(); renderDetail(); };
+    list.append(div);
+  }
+}
+
+function pre(text, cls) {
+  const p = document.createElement('pre');
+  if (cls) p.className = cls;
+  p.textContent = text || '(empty)';
+  return p;
+}
+
+function renderDetail() {
+  const d = $('#detail');
+  d.replaceChildren();
+  const ex = state.examples.find(e => e.id === state.selected);
+  if (!ex) return;
+  const h = document.createElement('h2'); h.textContent = ex.title;
+  const s = document.createElement('p'); s.id = 'summary'; s.textContent = ex.summary;
+  const btn = document.createElement('button');
+  btn.textContent = state.busy ? 'Running…' : 'Run';
+  btn.disabled = state.busy;
+  btn.onclick = () => runOne(ex.id);
+  d.append(h, s, btn);
+
+  const r = state.results[ex.id];
+  if (r) {
+    const m = document.createElement('div'); m.className = 'meta';
+    m.textContent = r.error ? 'Error: ' + r.error
+      : (r.timed_out ? 'Timed out' : 'Exit code ' + r.exit_code) + ' · ' + r.duration + 's';
+    d.append(m);
+    if (!r.error) {
+      const h1 = document.createElement('h3'); h1.textContent = 'stdout';
+      d.append(h1, pre(r.stdout));
+      if (r.stderr) {
+        const h2 = document.createElement('h3'); h2.textContent = 'stderr';
+        d.append(h2, pre(r.stderr, 'err'));
+      }
+    }
+  }
+}
+
+async function runOne(id) {
+  state.busy = true; $('#runAll').disabled = true; renderDetail();
+  try {
+    const res = await fetch('/api/run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    state.results[id] = await res.json();
+  } catch (e) {
+    state.results[id] = { error: String(e) };
+  }
+  state.busy = false; $('#runAll').disabled = false;
+  renderList(); renderDetail();
+}
+
+$('#runAll').onclick = async () => {
+  for (const ex of state.examples) {
+    state.selected = ex.id; renderList();
+    await runOne(ex.id);
+  }
+};
+
+load();
+</script>
+</body>
+</html>

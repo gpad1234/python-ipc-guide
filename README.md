@@ -64,7 +64,21 @@ If you're new to IPC, a sensible order is:
   faster and filesystem-scoped?** → Unix domain sockets or named pipes.
 - **Just need to notify a process of an event, no data?** → signals.
 
-## Running the examples
+## Run the examples from a GUI
+
+A small local web app lets you pick an example, click **Run**, and see its
+stdout/stderr, exit code and duration (or **Run all**). Standard library only:
+
+```bash
+python3 gui/app.py            # opens http://127.0.0.1:8765
+python3 gui/app.py --port 9000 --no-browser
+```
+
+It binds to localhost only, runs only the scripts registered in
+[gui/app.py](gui/app.py), runs one example at a time (the demos share fixed
+ports and `/tmp` paths), and times each run out after 30 seconds.
+
+## Running the examples from the command line
 
 Each `examples/NN_name/` directory contains its own `README.md` with
 specifics, plus one or more `.py` files. Examples are self-contained and use
